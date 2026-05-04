@@ -2,3 +2,4 @@ owid-covid-data.csv
 .ipynb_checkpoints/
 __pycache__/
 .DS_Store
+data/cleaned_covid_data.csv
