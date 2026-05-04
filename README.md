@@ -8,7 +8,7 @@
 ![NumPy](https://img.shields.io/badge/NumPy-013243?logo=numpy&logoColor=white)
 ![Matplotlib](https://img.shields.io/badge/Matplotlib-11557C?logo=python&logoColor=white)
 ![Seaborn](https://img.shields.io/badge/Seaborn-4C72B0?logo=python&logoColor=white)
-![Jupyter](https://img.shields.io/badge/Jupyter-F37626?logo=jupyter&logoColor=white)
+![Google Colab](https://img.shields.io/badge/Google%20Colab-F9AB00?logo=googlecolab&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Status](https://img.shields.io/badge/Status-Completed-brightgreen)
 
@@ -62,7 +62,10 @@ This analysis is framed around questions a public health agency, hospital system
 | **Available via** | [Kaggle](https://www.kaggle.com/datasets/caesarmario/our-world-in-data-covid19-dataset) |
 | **Coverage** | Jan 2020 – 2023 |
 | **Countries** | 200+ |
-| **Key Columns** | `location`, `date`, `total_cases`, `new_cases`, `total_deaths`, `new_deaths`, `total_vaccinations` |
+| **Raw columns** | 67 columns including cases, deaths, vaccinations, demographics |
+| **Columns used** | `location`, `date`, `total_cases`, `new_cases`, `total_deaths`, `new_deaths`, `total_vaccinations` |
+
+> ⚠️ **Note:** The raw dataset (`owid-covid-data.csv`) is not included in this repo due to its size (~90MB). Download it directly from the Kaggle link above.
 
 ### Data Dictionary
 
@@ -73,11 +76,9 @@ This analysis is framed around questions a public health agency, hospital system
 | `total_cases` | FLOAT | Cumulative confirmed cases |
 | `new_cases` | FLOAT | New confirmed cases on that day |
 | `total_deaths` | FLOAT | Cumulative confirmed deaths |
-| `new_deaths` | FLOAT | New deaths on that day |
+| `new_deaths` | FLOAT | New confirmed deaths on that day |
 | `total_vaccinations` | FLOAT | Cumulative total vaccine doses administered |
-| `death_rate` | FLOAT | Engineered feature: `total_deaths / total_cases × 100` |
-
-> ⚠️ **Data Note:** Case counts depend heavily on each country's testing capacity. Countries with limited testing will have underreported case numbers, inflating their apparent death rates. All findings should be interpreted with this limitation in mind.
+| `death_rate` | FLOAT | Engineered feature: `(total_deaths / total_cases) × 100` |
 
 ---
 
@@ -90,7 +91,7 @@ This analysis is framed around questions a public health agency, hospital system
 | **NumPy** | Numerical operations |
 | **Matplotlib & Seaborn** | Data visualisation |
 | **PostgreSQL** | Structured querying and analytical SQL |
-| **Google Colab / Jupyter Notebook** | Development environment |
+| **Google Colab** | Development environment |
 | **Kaggle** | Dataset source |
 
 ---
@@ -98,28 +99,28 @@ This analysis is framed around questions a public health agency, hospital system
 ## 🔄 Project Workflow
 
 ```
-Raw CSV (Our World in Data)
+Raw CSV (owid-covid-data.csv — 67 columns, 200+ countries)
         │
         ▼
-1. Data Loading & Inspection      ← pandas, shape, dtypes, nulls
+1. Data Loading & Inspection      ← pandas read_csv, shape, dtypes, null check
         │
         ▼
-2. Data Cleaning                  ← handle nulls, fix dtypes, remove aggregates
+2. Data Cleaning                  ← column selection, null handling (fillna), date conversion
         │
         ▼
-3. Feature Engineering            ← death_rate, growth_rate
+3. Feature Engineering            ← death_rate = (total_deaths / total_cases) × 100
         │
         ▼
-4. Exploratory Data Analysis      ← trends, distributions, correlations (Python)
+4. Exploratory Data Analysis      ← India trends, global trends, vaccination progress
         │
         ▼
-5. Export to PostgreSQL           ← cleaned_covid_data.csv → covid_data table
+5. Visualisations                 ← Matplotlib & Seaborn charts (embedded in notebook)
         │
         ▼
-6. SQL Analysis                   ← 6 analytical queries (top countries, monthly trends, etc.)
+6. Export to PostgreSQL           ← cleaned_covid_data.csv → covid_data table
         │
         ▼
-7. Insights & Visualisations      ← Matplotlib, Seaborn charts
+7. SQL Analysis                   ← 6 analytical queries (top countries, monthly trends, etc.)
 ```
 
 ---
@@ -128,36 +129,39 @@ Raw CSV (Our World in Data)
 
 ### Cleaning Steps Performed
 
-- **Missing values**: Filled numerical columns (`new_cases`, `new_deaths`, `total_vaccinations`) with `0` or forward-filled where appropriate to preserve time-series continuity
+- **Column selection**: The raw dataset has 67 columns — retained only 7 relevant to the analysis (`location`, `date`, `total_cases`, `new_cases`, `total_deaths`, `new_deaths`, `total_vaccinations`)
+- **Missing values**: Filled numerical columns with `0` using `fillna(0)` to preserve time-series continuity
 - **Data types**: Converted `date` column from object to `datetime64` format
-- **Removed aggregate rows**: Filtered out non-country rows such as `"World"`, `"International"`, `"High income"` etc. which exist in the raw OWID data and can skew country-level analysis
-- **Column selection**: Retained only columns relevant to the analysis scope
+- **Output**: Exported cleaned data as `cleaned_covid_data.csv` for loading into PostgreSQL
 
 ### Engineered Features
 
 | Feature | Formula | Why It Matters |
 |---------|---------|----------------|
-| `death_rate` | `(total_deaths / total_cases) × 100` | Measures case fatality rate (CFR) as a proxy for severity. Note: this is CFR, not infection fatality rate (IFR), which would require seroprevalence data. |
-| `growth_rate` | `new_cases.pct_change()` | Tracks day-over-day acceleration of the outbreak |
+| `death_rate` | `(total_deaths / total_cases) × 100` | Measures case fatality rate (CFR) as a proxy for outbreak severity |
+
+> **Note:** This is the Case Fatality Rate (CFR), not the Infection Fatality Rate (IFR). CFR uses confirmed cases as the denominator, which is heavily affected by testing capacity. Countries with low testing will appear to have higher death rates.
 
 ---
 
 ## 🗄 SQL Analysis
 
-All SQL queries are available in [`sql/sql_analysis.sql`](sql/sql_analysis.sql).
+All SQL queries are in [`sql_analysis.sql`](sql_analysis.sql).
 
-The cleaned dataset was exported to a PostgreSQL database with the following schema:
+The cleaned dataset was loaded into PostgreSQL using this schema:
 
 ```sql
+CREATE DATABASE covid_project;
+
 CREATE TABLE covid_data (
-    location          TEXT,
-    date              DATE,
-    total_cases       FLOAT,
-    new_cases         FLOAT,
-    total_deaths      FLOAT,
-    new_deaths        FLOAT,
+    location           TEXT,
+    date               DATE,
+    total_cases        FLOAT,
+    new_cases          FLOAT,
+    total_deaths       FLOAT,
+    new_deaths         FLOAT,
     total_vaccinations FLOAT,
-    death_rate        FLOAT
+    death_rate         FLOAT
 );
 ```
 
@@ -175,7 +179,7 @@ ORDER BY total_cases DESC
 LIMIT 10;
 ```
 
-> 📌 **Insight:** The USA, India, France, and Germany consistently rank at the top. However, per-capita context is critical — smaller countries with high per-capita counts are often missed in absolute rankings.
+> 📌 **Insight:** The USA, India, France, and Germany rank at the top. Per-capita context is critical — smaller countries with high per-capita counts are often missed in absolute rankings.
 
 ---
 
@@ -191,7 +195,7 @@ ORDER BY death_rate DESC
 LIMIT 10;
 ```
 
-> 📌 **Insight:** High death rates in some countries often reflect limited testing capacity (fewer confirmed cases in the denominator) rather than worse outcomes. Yemen, Mexico, and Syria appear near the top for this reason.
+> 📌 **Insight:** High death rates in some countries often reflect limited testing capacity rather than worse clinical outcomes. Yemen, Mexico, and Syria appear near the top for this reason.
 
 ---
 
@@ -222,13 +226,13 @@ ORDER BY vaccinations DESC
 LIMIT 10;
 ```
 
-> 📌 **Insight:** China, India, and the USA dominate in absolute doses — as expected given their large populations. Normalisation by population would be the next analytical step.
+> 📌 **Insight:** China, India, and the USA dominate in absolute doses given their large populations. Per-capita normalisation would shift this ranking significantly.
 
 ---
 
 ### Query 5 — Global Monthly Case Trends
 
-**Business Question:** How did worldwide monthly case volumes change across the pandemic?
+**Business Question:** How did worldwide monthly case volumes evolve across the pandemic?
 
 ```sql
 SELECT DATE_TRUNC('month', date) AS month,
@@ -264,78 +268,82 @@ ORDER BY new_cases DESC;
 ## 💡 Key Findings
 
 - 🌍 **USA, India, and France** recorded the highest absolute COVID-19 case counts globally
-- 💉 **Vaccination leaders** by total doses administered were China, India, and the USA — though per-capita metrics shift this ranking significantly
+- 💉 **Vaccination leaders** by total doses were China, India, and the USA — though per-capita metrics shift this ranking significantly
 - 📈 **India's Delta wave** (April–May 2021) showed a dramatically steeper curve than its 2020 wave, indicating far higher transmission rates
 - 📅 **The Omicron wave** (late 2021 – early 2022) produced the highest single-day case counts in nearly every country analysed
-- ⚠️ **Death rates vary widely** across countries — a key driver is testing capacity, not just clinical outcomes
-- 📊 **Monthly trend analysis** reveals 3 clearly defined global waves, with the 3rd wave (Omicron) being the largest by case volume
+- ⚠️ **Death rates vary widely** — a key driver is testing capacity, not just clinical outcomes
+- 📊 **Monthly trend analysis** reveals 3 clearly defined global waves, with the 3rd (Omicron) being the largest by case volume
 
 ---
 
 ## 📊 Visualizations
 
-The following charts were produced as part of this analysis (see [`reports/figures/`](reports/figures/)):
+All charts are produced and embedded inside the notebook [`COVID-19 Data Analysis Project.ipynb`](COVID-19%20Data%20Analysis%20Project.ipynb).
 
 | Chart | Description |
 |-------|-------------|
 | Total Cases Over Time — India | Line chart tracking India's cumulative case growth |
-| Daily New Cases — India | Bar/line chart highlighting wave peaks in India |
-| Death Rate Over Time | Line chart showing CFR evolution globally |
-| Top 10 Countries — Total Cases | Horizontal bar chart of highest-case countries |
-| Global Monthly Case Trends | Area chart showing pandemic waves |
-| Vaccination Progress | Line chart of cumulative vaccinations for top countries |
+| Daily New Cases — India | Chart highlighting wave peaks in India |
+| Death Rate Over Time — India | Line chart showing CFR evolution for India |
+| Top 10 Countries — Total Cases | Bar chart of highest-case countries globally |
+| Global Monthly Case Trends | Monthly aggregated case volumes |
+| Vaccination Progress | Cumulative vaccination totals for leading countries |
 
-> 📁 Charts are saved as `.png` files in the `reports/figures/` folder and embedded in the Jupyter notebook.
+> 📂 Open the notebook to view all charts with their full analysis context.
 
 ---
 
 ## ⚠️ Data Limitations
 
-- **Testing bias**: Countries with low testing rates will have underreported cases, making death rates appear artificially high
-- **Reporting lags**: Many countries reported weekly batches rather than daily, causing spikes in the data
-- **Definition changes**: The definition of a "confirmed case" or "COVID death" changed multiple times in several countries throughout the pandemic
-- **Vaccination data gaps**: Vaccination figures are missing or incomplete for many lower-income countries
-- **CFR ≠ IFR**: The death rate calculated here is the Case Fatality Rate, not the Infection Fatality Rate — the latter requires seroprevalence data not available in this dataset
+- **Testing bias**: Countries with low testing rates have underreported cases, making death rates appear artificially high
+- **Reporting lags**: Many countries reported weekly batches rather than daily, causing artificial spikes
+- **Definition changes**: The definition of a "confirmed case" or "COVID death" changed multiple times in several countries
+- **Vaccination data gaps**: Figures are missing or incomplete for many lower-income countries
+- **CFR ≠ IFR**: The death rate here is the Case Fatality Rate — the Infection Fatality Rate would require seroprevalence data not available in this dataset
 
 ---
 
 ## ▶️ How to Run This Project
 
-### 1. Clone the Repository
+### Option A — Run in Google Colab (Recommended)
 
+1. Open [`COVID-19 Data Analysis Project.ipynb`](COVID-19%20Data%20Analysis%20Project.ipynb) in Google Colab
+2. Download `owid-covid-data.csv` from [Kaggle](https://www.kaggle.com/datasets/caesarmario/our-world-in-data-covid19-dataset)
+3. Upload it to your Colab session (it will be available at `/content/owid-covid-data.csv`)
+4. Run all cells in order
+
+### Option B — Run Locally
+
+**1. Clone the repository**
 ```bash
-git clone https://github.com/YOUR_USERNAME/covid19-global-analysis.git
+git clone https://github.com/Sakshi29956/covid19-global-analysis.git
 cd covid19-global-analysis
 ```
 
-### 2. Install Python Dependencies
-
+**2. Install dependencies**
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Download the Dataset
+**3. Download the dataset**
 
-Download `owid-covid-data.csv` from [Kaggle](https://www.kaggle.com/datasets/caesarmario/our-world-in-data-covid19-dataset) and place it in the `data/raw/` folder.
+Download `owid-covid-data.csv` from [Kaggle](https://www.kaggle.com/datasets/caesarmario/our-world-in-data-covid19-dataset) and place it in the project root. Update the file path in the notebook from `/content/owid-covid-data.csv` to your local path.
 
-### 4. Run the Notebooks (in order)
-
-```
-notebooks/01-data-cleaning.ipynb
-notebooks/02-eda-and-visualizations.ipynb
+**4. Run the notebook**
+```bash
+jupyter notebook "COVID-19 Data Analysis Project.ipynb"
 ```
 
-### 5. Set Up PostgreSQL
-
+**5. Set up PostgreSQL (for SQL analysis)**
 ```bash
 # Create the database
 psql -U postgres -c "CREATE DATABASE covid_project;"
 
-# Create table and load data
-psql -U postgres -d covid_project -f sql/sql_analysis.sql
+# Run schema + queries
+psql -U postgres -d covid_project -f sql_analysis.sql
 ```
 
-> Update the file path in the `COPY` command inside `sql_analysis.sql` to match your local path to `cleaned_covid_data.csv`.
+> Update the file path in the `COPY` command inside `sql_analysis.sql` to point to your local `cleaned_covid_data.csv`.
 
 ---
 
@@ -344,34 +352,27 @@ psql -U postgres -d covid_project -f sql/sql_analysis.sql
 ```
 covid19-global-analysis/
 │
-├── README.md                          ← You are here
-├── requirements.txt                   ← Python dependencies
-├── .gitignore                         ← Excludes large data files & checkpoints
+├── README.md                              ← Project documentation (you are here)
+├── requirements.txt                       ← Python dependencies
+├── .gitignore                             ← Excludes large raw data files
 │
-├── data/
-│   ├── raw/                           ← Original OWID CSV (not committed — download via Kaggle)
-│   └── processed/
-│       └── cleaned_covid_data.csv     ← Cleaned, analysis-ready dataset
+├── COVID-19 Data Analysis Project.ipynb   ← Main notebook: cleaning, EDA, visualisations
+├── sql_analysis.sql                       ← PostgreSQL schema + 6 analytical queries
+├── project.pdf                            ← Project report (PDF version)
 │
-├── notebooks/
-│   ├── 01-data-cleaning.ipynb         ← Cleaning, type fixes, null handling
-│   └── 02-eda-and-visualizations.ipynb← EDA, feature engineering, charts
-│
-├── sql/
-│   └── sql_analysis.sql               ← Schema, table creation, all 6 analytical queries
-│
-└── reports/
-    └── figures/                       ← Exported chart PNGs
+└── data/
+    └── cleaned_covid_data.csv             ← Processed dataset (7 columns, ready for PostgreSQL)
+                                              Raw owid-covid-data.csv excluded — download from Kaggle
 ```
 
 ---
 
 ## 👩‍💻 About the Author
 
-**Sakshi Tiwari** — Data & BI Analyst  
+**Sakshi Tiwari** — Data & BI Analyst
 📍 Essen, Germany | 🎓 MSc Web & Data Science, Koblenz University
 
-Experienced in building end-to-end data pipelines, Power BI dashboards, and SQL analytics across global business development, banking, and IT sectors.
+Detail-oriented analyst with 3+ years of experience in global business development, banking, and IT. Skilled in building end-to-end data pipelines, Power BI dashboards, and SQL analytics.
 
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-0A66C2?logo=linkedin&logoColor=white)](https://linkedin.com/in/sakshi-tiwari-362652188)
 
@@ -379,7 +380,7 @@ Experienced in building end-to-end data pipelines, Power BI dashboards, and SQL 
 
 ## 📄 License
 
-This project is licensed under the [MIT License](LICENSE).  
+This project is licensed under the [MIT License](LICENSE).
 Data sourced from [Our World in Data](https://ourworldindata.org/covid-deaths) — licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
 ---
